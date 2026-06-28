@@ -1,0 +1,15 @@
+Flask
+Flask-Cors
+Flask-SQLAlchemy
+pandas
+numpy
+scikit-learn
+statsmodels
+openpyxl
+fpdf2
+werkzeug
+matplotlib
+gunicorn
+python-dotenv
+psycopg2-binary
+resend

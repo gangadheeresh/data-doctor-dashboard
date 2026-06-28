@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import pandas as pd
 import numpy as np
@@ -217,7 +217,13 @@ def upload_dataset():
         else:
             df = pd.read_excel(filepath)
             
-        metadata = generate_metadata_and_dictionary(df)
+        # Optimization: Use a sample for metadata generation to prevent timeouts/OOMs
+        meta_df = df.sample(n=min(10000, len(df)), random_state=42) if len(df) > 10000 else df
+        metadata = generate_metadata_and_dictionary(meta_df)
+        
+        # Ensure true row/col counts are saved, overriding the sample counts
+        metadata['row_count'] = len(df)
+        metadata['col_count'] = len(df.columns)
         
         # Save to Database
         dataset = Dataset(
@@ -225,8 +231,8 @@ def upload_dataset():
             filename=filename,
             filepath=filepath,
             file_size=file_size,
-            row_count=metadata['row_count'],
-            col_count=metadata['col_count']
+            row_count=len(df),
+            col_count=len(df.columns)
         )
         dataset.set_metadata(metadata)
         db.session.add(dataset)

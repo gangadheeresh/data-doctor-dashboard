@@ -210,18 +210,47 @@ def upload_dataset():
         return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
         
     # Process and build metadata
+    # Process and build metadata
     try:
         # Load sample/data efficiently to prevent OOM on massive files
         if filename.endswith('.csv'):
             # Fast row count without loading into Pandas memory
-            with open(filepath, 'rb') as f:
-                total_rows = sum(1 for _ in f) - 1 # subtract header
+            try:
+                with open(filepath, 'rb') as f:
+                    total_rows = max(0, sum(1 for _ in f) - 1) # subtract header
+            except Exception:
+                total_rows = 0
                 
-            # Only load the first 10,000 rows for metadata parsing
-            meta_df = pd.read_csv(filepath, nrows=10000)
+            if total_rows == 0:
+                raise ValueError("The uploaded CSV file appears to be empty or corrupted.")
+
+            # Try different encodings for robust parsing
+            encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+            meta_df = None
+            last_err = None
+            
+            for enc in encodings:
+                try:
+                    meta_df = pd.read_csv(filepath, nrows=10000, encoding=enc, on_bad_lines='skip')
+                    if not meta_df.empty:
+                        break
+                except Exception as e:
+                    last_err = e
+                    continue
+                    
+            if meta_df is None or meta_df.empty:
+                raise ValueError(f"Could not parse CSV file. Ensure it is a valid text CSV, not a renamed Excel file. Detailed Error: {str(last_err)}")
+                
             total_cols = len(meta_df.columns)
         else:
-            meta_df = pd.read_excel(filepath)
+            try:
+                meta_df = pd.read_excel(filepath)
+            except Exception as e:
+                raise ValueError(f"Could not parse Excel file. Ensure it is a valid .xlsx file. Detailed Error: {str(e)}")
+                
+            if meta_df.empty:
+                raise ValueError("The uploaded Excel file appears to be empty.")
+                
             total_rows = len(meta_df)
             total_cols = len(meta_df.columns)
             if total_rows > 10000:
@@ -251,11 +280,15 @@ def upload_dataset():
             'dataset': dataset.to_dict()
         }), 201
         
+    except ValueError as ve:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        return jsonify({'error': str(ve)}), 400
     except Exception as e:
         # Cleanup file if db write failed
         if os.path.exists(filepath):
             os.remove(filepath)
-        return jsonify({'error': f'Failed to process dataset: {str(e)}'}), 500
+        return jsonify({'error': f'An unexpected internal error occurred: {str(e)}'}), 500
 
 @datasets_bp.route('', methods=['GET'])
 @login_required

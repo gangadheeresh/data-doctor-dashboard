@@ -20,7 +20,7 @@ class Config:
     
     # Upload Settings
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-    MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100 MB max file upload size
+    MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500 MB max file upload size
     ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
 
     # Email configuration (Resend API)

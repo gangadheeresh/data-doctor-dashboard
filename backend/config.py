@@ -7,7 +7,7 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-123'
     
     # Database Configuration (Supabase PostgreSQL fallback to local SQLite)
-    SUPABASE_URI = os.environ.get('SUPABASE_URI')
+    SUPABASE_URI = 'postgresql://postgres.zthwqgxupmxjpgpchpfa:Dheereshganga%40009@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres'
     if SUPABASE_URI:
         # SQLAlchemy requires postgresql:// instead of postgres:// in newer versions, 
         # but Supabase provides postgresql:// so we are good.
@@ -16,6 +16,7 @@ class Config:
         SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'dashboard.db')
         
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 300}
     
     # Upload Settings
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')

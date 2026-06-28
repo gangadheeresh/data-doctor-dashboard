@@ -211,19 +211,27 @@ def upload_dataset():
         
     # Process and build metadata
     try:
-        # Load sample/data
+        # Load sample/data efficiently to prevent OOM on massive files
         if filename.endswith('.csv'):
-            df = pd.read_csv(filepath)
+            # Fast row count without loading into Pandas memory
+            with open(filepath, 'rb') as f:
+                total_rows = sum(1 for _ in f) - 1 # subtract header
+                
+            # Only load the first 10,000 rows for metadata parsing
+            meta_df = pd.read_csv(filepath, nrows=10000)
+            total_cols = len(meta_df.columns)
         else:
-            df = pd.read_excel(filepath)
+            meta_df = pd.read_excel(filepath)
+            total_rows = len(meta_df)
+            total_cols = len(meta_df.columns)
+            if total_rows > 10000:
+                meta_df = meta_df.sample(n=10000, random_state=42)
             
-        # Optimization: Use a sample for metadata generation to prevent timeouts/OOMs
-        meta_df = df.sample(n=min(10000, len(df)), random_state=42) if len(df) > 10000 else df
         metadata = generate_metadata_and_dictionary(meta_df)
         
         # Ensure true row/col counts are saved, overriding the sample counts
-        metadata['row_count'] = len(df)
-        metadata['col_count'] = len(df.columns)
+        metadata['row_count'] = total_rows
+        metadata['col_count'] = total_cols
         
         # Save to Database
         dataset = Dataset(
@@ -231,8 +239,8 @@ def upload_dataset():
             filename=filename,
             filepath=filepath,
             file_size=file_size,
-            row_count=len(df),
-            col_count=len(df.columns)
+            row_count=total_rows,
+            col_count=total_cols
         )
         dataset.set_metadata(metadata)
         db.session.add(dataset)
@@ -275,7 +283,8 @@ def get_preview(dataset_id):
     
     try:
         if dataset.filepath.endswith('.csv'):
-            df = pd.read_csv(dataset.filepath)
+            # Only read what we need for preview
+            df = pd.read_csv(dataset.filepath, nrows=offset+limit)
         else:
             df = pd.read_excel(dataset.filepath)
             
@@ -292,7 +301,7 @@ def get_preview(dataset_id):
             records.append(record)
             
         return jsonify({
-            'total_rows': len(df),
+            'total_rows': dataset.row_count, # Use DB count
             'columns': list(df.columns),
             'data': records,
             'limit': limit,
@@ -324,23 +333,27 @@ def get_chart_data(dataset_id):
     row_to   = int(body.get('row_to', 5000) or 5000)
 
     try:
+        total_rows = dataset.row_count
+        
         if dataset.filepath.endswith('.csv'):
-            df = pd.read_csv(dataset.filepath)
+            # Extremely memory efficient reading based on row_mode
+            if row_mode == 'first':
+                df = pd.read_csv(dataset.filepath, nrows=max(1, row_n))
+            elif row_mode == 'custom':
+                df = pd.read_csv(dataset.filepath, skiprows=range(1, row_from + 1), nrows=row_to - row_from)
+            else:
+                # 'all' or 'last': Just load 10000 rows to prevent OOM
+                df = pd.read_csv(dataset.filepath, nrows=10000)
         else:
             df = pd.read_excel(dataset.filepath)
-
-        total_rows = len(df)
-
-        # Apply row slicing BEFORE any aggregation
-        if row_mode == 'first':
-            df = df.iloc[:max(1, row_n)]
-        elif row_mode == 'last':
-            df = df.iloc[max(0, total_rows - row_n):]
-        elif row_mode == 'custom':
-            rf = max(0, min(row_from, total_rows - 1))
-            rt = max(rf + 1, min(row_to, total_rows))
-            df = df.iloc[rf:rt]
-        # 'all' â†’ keep full df but cap at 5000 for non-aggregated queries (done later)
+            if row_mode == 'first':
+                df = df.iloc[:max(1, row_n)]
+            elif row_mode == 'last':
+                df = df.iloc[max(0, total_rows - row_n):]
+            elif row_mode == 'custom':
+                rf = max(0, min(row_from, total_rows - 1))
+                rt = max(rf + 1, min(row_to, total_rows))
+                df = df.iloc[rf:rt]
 
         # Cast types from metadata
         meta = dataset.get_metadata()
